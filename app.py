@@ -4,20 +4,21 @@ import torch
 import torch.nn as nn
 from torchvision import models, transforms
 from PIL import Image
-from pathlib import Path
+from huggingface_hub import hf_hub_download
 
-# Page configuration
+# ---------------- PAGE CONFIGURATION ----------------
 st.set_page_config(
     page_title="Generative Media Detector",
     page_icon="🔍",
     layout="centered"
 )
 
-# Model settings
-MODEL_PATH = Path(__file__).parent / "resnet50_genimage_finetuned.pth"
+# ---------------- MODEL SETTINGS ----------------
+MODEL_REPO = "Abhiram240506/Generative_media_fraud_detection"
+MODEL_FILENAME = "resnet50_genimage_finetuned.pth"
 DEVICE = torch.device("cpu")
 
-# Image preprocessing
+# ---------------- IMAGE PREPROCESSING ----------------
 transform = transforms.Compose([
     transforms.Resize((224, 224)),
     transforms.ToTensor(),
@@ -27,19 +28,19 @@ transform = transforms.Compose([
     )
 ])
 
-# Load trained model
+# ---------------- LOAD TRAINED MODEL ----------------
 @st.cache_resource
 def load_model():
-    if not MODEL_PATH.exists():
-        raise FileNotFoundError(
-            f"Model file not found: {MODEL_PATH.name}"
-        )
+    model_path = hf_hub_download(
+        repo_id=MODEL_REPO,
+        filename=MODEL_FILENAME
+    )
 
     model = models.resnet50(weights=None)
     model.fc = nn.Linear(model.fc.in_features, 2)
 
     checkpoint = torch.load(
-        MODEL_PATH,
+        model_path,
         map_location=DEVICE,
         weights_only=True
     )
@@ -51,16 +52,17 @@ def load_model():
     return model
 
 
-# App interface
+# ---------------- APPLICATION INTERFACE ----------------
 st.title("🔍 Generative Media Detector")
+
 st.write(
     "Upload an image to check whether it appears to be "
-    "real or AI-generated."
+    "a real photograph or an AI-generated image."
 )
 
 st.info(
-    "This is an experimental image classifier. "
-    "Its predictions may be incorrect."
+    "Experimental AI classifier. Predictions may be incorrect "
+    "and should not be treated as proof of authenticity."
 )
 
 uploaded_file = st.file_uploader(
@@ -74,20 +76,20 @@ if uploaded_file is not None:
 
         st.image(
             image,
-            caption="Uploaded image",
+            caption="Uploaded Image",
             use_container_width=True
         )
 
         if st.button("Analyze Image", type="primary"):
-            with st.spinner("Analyzing image..."):
+            with st.spinner("Loading model and analyzing image..."):
                 model = load_model()
-                input_tensor = transform(image).unsqueeze(0)
+                input_tensor = transform(image).unsqueeze(0).to(DEVICE)
 
                 with torch.inference_mode():
                     outputs = model(input_tensor)
                     probabilities = torch.softmax(outputs, dim=1)[0]
 
-                # Model class mapping: FAKE = 0, REAL = 1
+                # Model classes: FAKE = 0, REAL = 1
                 fake_score = probabilities[0].item()
                 real_score = probabilities[1].item()
 
@@ -115,9 +117,14 @@ if uploaded_file is not None:
                 st.progress(real_score)
 
             st.caption(
-                "Scores represent the model's relative outputs, "
-                "not verified probabilities or proof of authenticity."
+                "Scores are model outputs, not verified probabilities. "
+                "The classifier can make mistakes, especially on "
+                "unfamiliar image generators or image types."
             )
 
     except Exception as error:
-        st.error(f"Something went wrong: {error}")
+        st.error(f"Analysis failed: {error}")
+        st.info(
+            "Please check the model repository and deployment logs "
+            "if this problem continues."
+        )
